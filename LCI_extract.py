@@ -23,6 +23,27 @@ logging.basicConfig(
 logger = logging.getLogger("LCI_extract")
 
 
+def read_data_file(filepath):
+    """
+    Read CSV or XLSX file and return DataFrame.
+    
+    Parameters:
+    -----------
+    filepath : Path or str
+        Path to the data file.
+        
+    Returns:
+    --------
+    pandas.DataFrame
+        Loaded data.
+    """
+    filepath = Path(filepath)
+    if filepath.suffix.lower() == '.xlsx':
+        return pd.read_excel(filepath, sheet_name=0)
+    else:
+        return pd.read_csv(filepath)
+
+
 def analyze_lsci_data(data, segm, name, generate_plots=True):
     """
     Analyze LSCI data for a single file and calculate perfusion metrics.
@@ -357,7 +378,7 @@ def LCI_extract(raw_path, file_maps=None, output_path=None, generate_plots=False
                 logger.warning(f"File {data_path} does not exist, skipping")
                 continue
                 
-            data = pd.read_csv(data_path)
+            data = read_data_file(data_path)
         except Exception as e:
             logger.error(f"Error reading {segment['Filename']}: {str(e)}")
             continue
