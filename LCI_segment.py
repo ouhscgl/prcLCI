@@ -18,8 +18,8 @@ class LSCIAnalyzer:
         # Calculate window size and position
         window_width = screen_width - 100
         window_height = 600
-        x_position = int((screen_width - window_width) / 2)  # Center horizontally
-        y_position = int((screen_height - window_height) / 2)  # Center vertically
+        x_position = int((screen_width - window_width) / 2)
+        y_position = int((screen_height - window_height) / 2)
         
         # Set window size and position
         self.root.geometry(f"{window_width}x{window_height}+{x_position}+{y_position}")
@@ -33,7 +33,9 @@ class LSCIAnalyzer:
         self.files_to_process = []
         self.output_data = []
         self.current_file_index = 0
-        self.processed_files = set()  # Track which files have already been processed
+        self.processed_files = set()
+        self.current_directory = None
+        self.last_saved_file = None
         
         # Set up key bindings for navigation
         self.root.bind('<Left>', self.previous_file)
@@ -51,6 +53,17 @@ class LSCIAnalyzer:
         # Input file selection
         tk.Button(control_frame, text="Load Previous Data", 
                   command=self.load_previous_data).pack(side=tk.LEFT, padx=5)
+        
+        # Add reset and save buttons
+        tk.Button(control_frame, text="↻ Reset",
+                  command=self.reset_markers).pack(side=tk.LEFT, padx=5)
+        
+        tk.Button(control_frame, text="↓ Save",
+                  command=self.save_to_disk).pack(side=tk.LEFT, padx=5)
+        
+        # Add processing button
+        tk.Button(control_frame, text="Run Processing", 
+                  command=self.run_processing, bg='lightgreen').pack(side=tk.LEFT, padx=20)
 
         # Navigation buttons, labels
         tk.Button(control_frame, text=" → ", command=self.next_file).pack(side=tk.RIGHT, padx=5)
@@ -67,6 +80,88 @@ class LSCIAnalyzer:
         # Connect click event
         self.canvas.mpl_connect('button_press_event', self.on_click)
         
+    def reset_markers(self):
+        """Reset current markers and redraw plot"""
+        self.points = []
+        self.plot_data()
+        
+    def save_to_disk(self):
+        """Save segmentation data to disk (only files with 6 markers)"""
+        # Filter only complete entries (those with 6 points)
+        complete_data = [entry for entry in self.output_data 
+                        if all(key in entry for key in ['BaselineStart', 'BaselineEnd', 
+                                                        'CompressionStart', 'CompressionEnd',
+                                                        'DeflationStart', 'DeflationEnd'])]
+        
+        if not complete_data:
+            messagebox.showwarning("No Data", "No files with complete segmentation (6 markers) to save.")
+            return
+            
+        output_file = filedialog.asksaveasfilename(
+            defaultextension=".csv",
+            filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
+            initialfile=f"lci_segment_{date.today()}.csv"
+        )
+        
+        if output_file:
+            df = pd.DataFrame(complete_data)
+            df.to_csv(output_file, index=False)
+            self.last_saved_file = output_file
+            messagebox.showinfo("Save Complete", 
+                              f"Saved {len(complete_data)} complete segmentations to {output_file}")
+    
+    def run_processing(self):
+        """Run the LCI extraction processing"""
+        try:
+            from LCI_extract import LCI_extract
+        except ImportError:
+            messagebox.showerror("Error", "Could not import LCI_extract module. Make sure LCI_extract.py is in the same directory.")
+            return
+        
+        # Check if we have segmentation file in memory
+        segm_file = self.last_saved_file
+        if not segm_file or not os.path.exists(segm_file):
+            segm_file = filedialog.askopenfilename(
+                title="Select Segmentation File",
+                filetypes=[("CSV files", "*.csv"), ("All files", "*.*")]
+            )
+            if not segm_file:
+                return
+        
+        # Check if we have directory in memory
+        raw_path = self.current_directory
+        if not raw_path or not os.path.exists(raw_path):
+            raw_path = filedialog.askdirectory(title="Select Data Directory")
+            if not raw_path:
+                return
+        
+        # Ask for output directory
+        output_path = filedialog.askdirectory(title="Select Output Directory")
+        if not output_path:
+            return
+        
+        # Ask if plots should be generated
+        generate_plots = messagebox.askyesno("Generate Plots", 
+                                            "Generate analysis plots? (This may take longer)")
+        
+        try:
+            messagebox.showinfo("Processing", "Processing started. This may take a while...")
+            result = LCI_extract(
+                raw_path=raw_path,
+                output_path=output_path,
+                generate_plots=generate_plots,
+                segm_file=segm_file
+            )
+            
+            if not result.empty:
+                messagebox.showinfo("Success", 
+                                   f"Processing complete! {len(result)} files processed.\nResults saved to {output_path}")
+            else:
+                messagebox.showwarning("Warning", "Processing completed but no data was extracted.")
+                
+        except Exception as e:
+            messagebox.showerror("Error", f"Error during processing: {str(e)}")
+    
     def load_previous_data(self):
         """Load previously processed file data to skip those files"""
         filepath = filedialog.askopenfilename(
@@ -100,12 +195,11 @@ class LSCIAnalyzer:
     def select_directory(self):
         directory = filedialog.askdirectory()
         if directory:
-            # Recursively find all CSV files in directory and subdirectories
+            # Recursively find all CSV and XLSX files
             self.files_to_process = []
             for root, dirs, files in os.walk(directory):
                 for file in files:
-                    if file.endswith('.csv'):
-                        # Store full path relative to selected directory
+                    if file.endswith('.csv') or file.endswith('.xlsx'):
                         rel_path = os.path.relpath(os.path.join(root, file), 
                                                    directory)
                         
@@ -121,7 +215,7 @@ class LSCIAnalyzer:
                 self.process_current_file()
             else:
                 messagebox.showwarning("No files found",
-                                       "No unprocessed CSV files found in the selected directory and its subdirectories.")
+                                       "No unprocessed CSV/XLSX files found in the selected directory.")
     
     def update_nav_label(self):
         total = len(self.files_to_process)
@@ -132,13 +226,10 @@ class LSCIAnalyzer:
         if not self.files_to_process:
             return
             
-        # Save current points if there are any
-        if self.points:
-            response = messagebox.askyesno("Save Points", 
-                                          "Save the current points before navigating?")
-            if response and len(self.points) == 6:
-                self.save_current_points()
-            self.points = []
+        # Save current points to memory if there are 6
+        if len(self.points) == 6:
+            self.save_current_points()
+        self.points = []
         
         # Go to previous file
         self.current_file_index = max(0, self.current_file_index - 1)
@@ -149,24 +240,16 @@ class LSCIAnalyzer:
         if not self.files_to_process:
             return
             
-        # Save current points if there are any
-        if self.points:
-            response = messagebox.askyesno("Save Points", 
-                                          "Save the current points before navigating?")
-            if response and len(self.points) == 6:
-                self.save_current_points()
-            self.points = []
+        # Save current points to memory if there are 6
+        if len(self.points) == 6:
+            self.save_current_points()
+        self.points = []
         
-        # Go to next file or finish
+        # Go to next file
         if self.current_file_index < len(self.files_to_process) - 1:
             self.current_file_index += 1
             self.update_nav_label()
             self.process_current_file()
-        else:
-            response = messagebox.askyesno("Finished", 
-                                          "No more files to process. Save results and exit?")
-            if response:
-                self.save_results()
     
     def process_current_file(self):
         if not self.files_to_process:
@@ -175,10 +258,19 @@ class LSCIAnalyzer:
         self.current_file = self.files_to_process[self.current_file_index]
         self.plot_data()
     
+    def read_data_file(self, filepath):
+        """Read CSV or XLSX file and return DataFrame"""
+        if filepath.endswith('.xlsx'):
+            # Read first sheet of Excel file
+            df = pd.read_excel(filepath, sheet_name=0)
+            return df
+        else:
+            return pd.read_csv(filepath)
+    
     def plot_data(self):
         filepath = os.path.join(self.current_directory, self.current_file)
         try:
-            data = pd.read_csv(filepath)
+            data = self.read_data_file(filepath)
             self.current_data = data
             
             self.ax.clear()
@@ -200,7 +292,7 @@ class LSCIAnalyzer:
             existing_entry = next((entry for entry in self.output_data 
                                   if entry['Filename'] == self.current_file), None)
             
-            if existing_entry:
+            if existing_entry and 'BaselineStart' in existing_entry:
                 point_values = [
                     existing_entry['BaselineStart'],
                     existing_entry['BaselineEnd'],
@@ -233,26 +325,18 @@ class LSCIAnalyzer:
         self.canvas.draw()
         
         if len(self.points) == 6:
+            # Save to memory
             self.save_current_points()
             
-            # Create custom dialog with Yes as default
-            self.root.focus_force()  # Force focus on main window
-            response = messagebox.askyesnocancel(
-                "Continue",
-                "Process next file?",
-                default=messagebox.YES,
-                icon=messagebox.QUESTION)
-            
-            if response is True:
-                self.next_file()
-            elif response is False:  # No
-                self.save_results()
-            else:  # Cancel
-                self.points = []  # Clear points
-                self.plot_data()  # Redraw current file
+            # Auto-advance to next file if it exists
+            if self.current_file_index < len(self.files_to_process) - 1:
+                self.points = []
+                self.current_file_index += 1
+                self.update_nav_label()
+                self.process_current_file()
     
     def save_current_points(self):
-        # Update existing entry if it exists, otherwise append new entry
+        """Save current points to memory"""
         entry = {
             'Filename': self.current_file,
             'BaselineStart': self.points[0],
@@ -274,21 +358,6 @@ class LSCIAnalyzer:
             
         # Mark this file as processed
         self.processed_files.add(self.current_file)
-    
-    def save_results(self):
-        if self.output_data:
-            output_file = filedialog.asksaveasfilename(
-                defaultextension=".csv",
-                filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
-                initialfile="lci_segment" + str(date.today()) + ".csv"
-            )
-            
-            if output_file:
-                df = pd.DataFrame(self.output_data)
-                df.to_csv(output_file, index=False)
-                messagebox.showinfo("Save Complete", f"Data saved to {output_file}")
-        
-        self.root.quit()
     
     def run(self):
         self.root.mainloop()
