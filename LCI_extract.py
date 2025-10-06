@@ -1,12 +1,5 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
-Laser Contrast Imaging (LCI) Data Extraction Module
-
-This module analyzes LCI data, computing perfusion metrics and generating plots.
-It can be used as an imported module, run from command line, or standalone.
-"""
-
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -19,24 +12,11 @@ from datetime import date
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
+    )
 logger = logging.getLogger("LCI_extract")
 
 
 def read_data_file(filepath):
-    """
-    Read CSV or XLSX file and return DataFrame.
-    
-    Parameters:
-    -----------
-    filepath : Path or str
-        Path to the data file.
-        
-    Returns:
-    --------
-    pandas.DataFrame
-        Loaded data.
-    """
     filepath = Path(filepath)
     if filepath.suffix.lower() == '.xlsx':
         return pd.read_excel(filepath, sheet_name=0)
@@ -45,26 +25,6 @@ def read_data_file(filepath):
 
 
 def analyze_lsci_data(data, segm, name, generate_plots=True):
-    """
-    Analyze LSCI data for a single file and calculate perfusion metrics.
-    
-    Parameters:
-    -----------
-    data : pandas.DataFrame
-        Raw LSCI data.
-    segm : pandas.Series
-        Segmentation parameters for the current data.
-    name : str
-        Name identifier for the current data.
-    generate_plots : bool, optional
-        Whether to generate plots. Default is True.
-        
-    Returns:
-    --------
-    list
-        List of dictionaries containing calculated perfusion metrics.
-    """
-    # Initialize return variables
     perfusion_metrics = []
     
     # Remove all unnecessary fields
@@ -273,46 +233,18 @@ def analyze_lsci_data(data, segm, name, generate_plots=True):
 
 
 def LCI_extract(raw_path, file_maps=None, output_path=None, generate_plots=False, segm_file=None):
-    """
-    Extract and analyze Laser Contrast Imaging (LCI) data.
-    
-    Parameters:
-    -----------
-    raw_path : str
-        Path to the directory containing raw LCI data files.
-    file_maps : pandas.DataFrame or None, optional
-        DataFrame with 'ID' and 'LSC' columns mapping subject IDs to filenames.
-        If None, all files in the directory will be processed.
-    output_path : str or None, optional
-        Path to save the extracted data and plots. If None, no files are saved.
-    generate_plots : bool, optional
-        Whether to generate and save plots. Default is False.
-    segm_file : str or None, optional
-        Path to the CSV file containing segmentation parameters.
-        If None, looks for 'output_data.csv' in the '../extn' directory.
-        
-    Returns:
-    --------
-    pandas.DataFrame
-        DataFrame containing the extracted LCI data with calculated metrics.
-    """
     logger.info(f"Starting LCI extraction from {raw_path}")
     
-    # Convert paths to Path objects for easier manipulation
     raw_path = Path(raw_path)
-    
-    # Ensure raw_path exists
     if not raw_path.exists():
         logger.error(f"Raw data path {raw_path} does not exist")
         return pd.DataFrame()
     
-    # Ensure output_path exists if provided
     if output_path is not None:
         output_path = Path(output_path)
         output_path.mkdir(parents=True, exist_ok=True)
         logger.info(f"Output will be saved to {output_path}")
         
-    # Find segmentation file if not provided
     if segm_file is None:
         segm_file = raw_path.parent / 'extn' / 'output_data.csv'
         if not segm_file.exists():
@@ -326,7 +258,6 @@ def LCI_extract(raw_path, file_maps=None, output_path=None, generate_plots=False
     
     logger.info(f"Using segmentation file: {segm_file}")
         
-    # Load segmentation data
     try:
         segments = pd.read_csv(segm_file)
         logger.info(f"Loaded segmentation data with {len(segments)} entries")
@@ -399,16 +330,12 @@ def LCI_extract(raw_path, file_maps=None, output_path=None, generate_plots=False
             logger.error(f"Error analyzing {segment['Filename']}: {str(e)}")
             continue
 
-    # Create DataFrame and pivot for final results
     logger.info(f"Completed processing {len(all_metrics)} metrics entries")
-    
     if not all_metrics:
         logger.warning("No data was processed successfully")
         return pd.DataFrame()
-        
-    # Create final DataFrame
+
     df = pd.DataFrame(all_metrics)
-    
     try:
         pivoted_df = df.pivot(index='Name', columns='Iter', 
                           values=df.columns.drop(['Name', 'Iter']))
@@ -417,7 +344,6 @@ def LCI_extract(raw_path, file_maps=None, output_path=None, generate_plots=False
         sorted_columns = ['Name'] + sorted(pivoted_df.columns.drop('Name'))
         pivoted_df = pivoted_df[sorted_columns]
         
-        # Save to CSV if requested
         if output_path:
             output_file = output_path / f'lci_analysis_{date.today()}.csv'
             pivoted_df.to_csv(output_file, index=False)
@@ -426,7 +352,6 @@ def LCI_extract(raw_path, file_maps=None, output_path=None, generate_plots=False
         return pivoted_df
     except Exception as e:
         logger.error(f"Error creating final DataFrame: {str(e)}")
-        # Return unpivoted data as fallback
         return df
 
 
@@ -453,10 +378,8 @@ def parse_arguments():
 
 
 def main():
-    """Main function for command line execution"""
     args = parse_arguments()
     
-    # Load file_maps if provided
     file_maps = None
     if args.file_map:
         try:
@@ -480,7 +403,6 @@ def main():
         logger.info(f"Extraction complete. {len(result)} rows extracted.")
     else:
         logger.warning("No data was extracted.")
-    
     return result
 
 
