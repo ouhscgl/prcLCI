@@ -1,10 +1,94 @@
-import tkinter as tk
-from tkinter import filedialog, messagebox
-import pandas as pd
-import matplotlib.pyplot as plt
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-import os
-from datetime import date
+# Built-in libraries
+import json, os, subprocess, sys
+from pathlib import Path
+
+def check_and_install_dependencies(CURRENT_VERSION):
+    config_file = Path(__file__).parent / "lci_dependencies.json"
+    
+    required_packages = {
+        "numpy"     : ">=1.19.0",
+        "pandas"    : ">=1.3.0",
+        "matplotlib": ">=3.3.0",
+        "openpyxl"  : ">=3.0.0",
+    }
+    
+    if config_file.exists():
+        try:
+            with open(config_file, 'r') as f:
+                config = json.load(f)
+                
+            if config.get("version") == CURRENT_VERSION and config.get("dependencies_checked", False):
+                return True
+        except:
+            pass
+    
+    print("\nChecking dependencies...")
+    
+    missing_packages = []
+    for package, version_spec in required_packages.items():
+        try:
+            __import__(package)
+            
+        except ImportError:
+            print(f"{package} is missing")
+            missing_packages.append(package)
+    
+    if not missing_packages:
+        config_data = {
+            "version"               : CURRENT_VERSION,
+            "dependencies_checked"  : True,
+            "check_timestamp"       : os.path.getmtime(__file__),
+            "python_version"        : sys.version
+        }
+        
+        with open(config_file, 'w') as f:
+            json.dump(config_data, f, indent=2)
+        
+        print("DONE")
+        return True
+    
+    print(f"\nMissing packages: {', '.join(missing_packages)}")
+    response = input("Would you like to install missing packages? ([y]/n): ").strip().lower()
+    
+    if response in ['y', 'yes','']:
+        try:
+            install_cmd = [sys.executable, "-m", "pip", "install"]
+            
+            for package in missing_packages:
+                install_cmd.append(package + required_packages[package])
+            
+            print(f"Running: {' '.join(install_cmd)}")
+            result = subprocess.run(
+                install_cmd,
+                check=True,
+                capture_output=True,
+                text=True
+            )
+            print("DONE")
+            
+            config_data = {
+                "version": CURRENT_VERSION,
+                "dependencies_checked": True,
+                "check_timestamp": os.path.getmtime(__file__),
+                "python_version": sys.version,
+                "installed_packages": missing_packages
+            }
+            with open(config_file, 'w') as f:
+                json.dump(config_data, f, indent=2)
+
+            return True
+            
+        except subprocess.CalledProcessError as e:
+            print(f"Installation failed with error:\n{e.stderr}")
+            print("\nPlease install the missing packages manually:")
+            for package in missing_packages:
+                print(f"  pip install {package}{required_packages[package]}")
+            return False
+    else:
+        print("\nPlease install the missing packages manually:")
+        for package in missing_packages:
+            print(f"  pip install {package}{required_packages[package]}")
+        return False
 
 class LSCIAnalyzer:
     def __init__(self):
@@ -363,5 +447,19 @@ class LSCIAnalyzer:
         self.root.mainloop()
 
 if __name__ == "__main__":
+    CURRENT_VERSION = "3.2"
+    if not check_and_install_dependencies(CURRENT_VERSION):
+        print("\nDependency check failed. Exiting...")
+        sys.exit(1)
+    
+    print("\nOpening application...")
+    import tkinter as tk
+    from tkinter import filedialog, messagebox
+    import pandas as pd
+    import matplotlib.pyplot as plt
+    from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+    from datetime import date
     app = LSCIAnalyzer()
+    print("DONE")
+
     app.run()
